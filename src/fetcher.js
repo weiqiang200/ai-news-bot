@@ -10,7 +10,6 @@ const parser = new Parser();
 
 // Stable RSS sources
 const RSS_SOURCES = [
-  // AI Company Blogs
   { name: 'OpenAI Blog', url: 'https://openai.com/blog/rss.xml', type: 'blog' },
   { name: 'Anthropic Blog', url: 'https://www.anthropic.com/rss.xml', type: 'blog' },
   { name: 'DeepMind Blog', url: 'https://deepmind.google/blog/rss/', type: 'blog' },
@@ -23,19 +22,51 @@ const RSS_SOURCES = [
 ];
 
 /**
+ * Generate a simple summary from content
+ */
+function generateSummary(content, maxLength = 200) {
+  if (!content) return '';
+
+  // Remove HTML tags
+  let text = content.replace(/<[^>]*>/g, ' ');
+
+  // Remove extra whitespace
+  text = text.replace(/\s+/g, ' ').trim();
+
+  // If content is short, return as is
+  if (text.length <= maxLength) {
+    return text;
+  }
+
+  // Find a good break point (at sentence boundary)
+  const truncated = text.substring(0, maxLength);
+  const lastPeriod = truncated.lastIndexOf('.');
+  const lastQuestion = truncated.lastIndexOf('?');
+  const lastExclaim = truncated.lastIndexOf('!');
+
+  const lastSentenceEnd = Math.max(lastPeriod, lastQuestion, lastExclaim);
+
+  if (lastSentenceEnd > maxLength * 0.5) {
+    return text.substring(0, lastSentenceEnd + 1);
+  }
+
+  return truncated + '...';
+}
+
+/**
  * Fetch AI stories from Hacker News
  */
 async function fetchHackerNewsAI() {
   try {
     console.log('  Fetching from Hacker News...');
     const response = await axios.get(
-      'https://hn.algolia.com/api/v1/search_by_date?query=AI&tags=story&hitsPerPage=30',
+      'https://hn.algolia.com/api/v1/search_by_date?query=AI%20OR%20artificial%20intelligence&tags=story&hitsPerPage=30',
       { timeout: 15000 }
     );
 
     const stories = response.data.hits.map(story => ({
       title: story.title || '',
-      content: `${story.title}\n${story.url || 'https://news.ycombinator.com/item?id=' + story.objectID}`,
+      content: story.story_text || story.comment_text || story.title || '',
       link: story.url || `https://news.ycombinator.com/item?id=${story.objectID}`,
       pubDate: new Date(story.created_at).toISOString(),
       author: story.author || 'Anonymous',
@@ -71,14 +102,20 @@ async function fetchRssSource(source) {
       return [];
     }
 
-    const items = feed.items.slice(0, 10).map(item => ({
-      title: item.title || '',
-      content: item.contentSnippet || item.content || item.description || '',
-      link: item.link || item.id,
-      pubDate: item.pubDate || item.isoDate,
-      author: source.name,
-      authorHandle: source.name.replace(/\s+/g, '')
-    }));
+    const items = feed.items.slice(0, 10).map(item => {
+      // Prefer content:encoded for full content
+      let fullContent = item['content:encoded'] || item.contentSnippet || item.content || item.description || '';
+
+      return {
+        title: item.title || '',
+        content: fullContent,
+        link: item.link || item.id,
+        pubDate: item.pubDate || item.isoDate,
+        author: source.name,
+        authorHandle: source.name.replace(/\s+/g, ''),
+        points: 0
+      };
+    });
 
     console.log(`    Got ${items.length} items from ${source.name}`);
     return items;
@@ -106,19 +143,25 @@ function filterRecentItems(items, days = 3) {
 }
 
 /**
- * Clean content
+ * Clean and summarize content
  */
-function cleanContent(content) {
-  if (!content) return '';
-  // Remove HTML tags
-  let cleaned = content.replace(/<[^>]*>/g, ' ');
-  // Remove extra whitespace
-  cleaned = cleaned.replace(/\s+/g, ' ').trim();
-  // Truncate if too long
-  if (cleaned.length > 500) {
-    cleaned = cleaned.substring(0, 500) + '...';
+function processContent(item) {
+  // Generate summary
+  const summary = generateSummary(item.content || item.title || '', 300);
+
+  // Clean the content for display
+  let cleanContent = item.content || '';
+  cleanContent = cleanContent.replace(/<[^>]*>/g, ' ');
+  cleanContent = cleanContent.replace(/\s+/g, ' ').trim();
+  if (cleanContent.length > 800) {
+    cleanContent = cleanContent.substring(0, 800) + '...';
   }
-  return cleaned.trim();
+
+  return {
+    ...item,
+    summary,
+    cleanContent
+  };
 }
 
 /**
@@ -150,32 +193,25 @@ async function fetchAINews() {
   const recentItems = filterRecentItems(allItems, 3);
   console.log(`Recent items (last 3 days): ${recentItems.length}`);
 
-  // Clean each item
-  const cleanedItems = recentItems.map(item => ({
-    ...item,
-    content: cleanContent(item.content)
-  }));
+  // Process each item (generate summary)
+  const processedItems = recentItems.map(item => processContent(item));
 
-  // Sort by date (newest first)
-  cleanedItems.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
+  // Sort by points (HN) or date
+  processedItems.sort((a, b) => (b.points || 0) - (a.points || 0));
 
-  console.log(`Found ${cleanedItems.length} recent AI news items`);
+  console.log(`Found ${processedItems.length} recent AI news items`);
 
-  return cleanedItems;
+  return processedItems;
 }
 
 /**
- * Select top N items to include in the email
+ * Select top N items
  */
 function selectTopItems(items, count = 15) {
-  // Sort by points (for HN) or just take unique
-  const sorted = [...items].sort((a, b) => (b.points || 0) - (a.points || 0));
-
-  // Remove duplicates based on title
   const uniqueItems = [];
   const seenTitles = new Set();
 
-  for (const item of sorted) {
+  for (const item of items) {
     const titleKey = item.title.toLowerCase().substring(0, 50);
     if (!seenTitles.has(titleKey)) {
       seenTitles.add(titleKey);

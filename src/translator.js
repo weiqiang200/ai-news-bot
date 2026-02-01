@@ -1,25 +1,23 @@
 /**
  * Translation Module
- * Uses free translation APIs with fallback
+ * Translates article summaries using MyMemory API
  */
 
 const axios = require('axios');
 
 // Configuration
-const FROM_LANG = process.env.TRANSLATE_FROM || 'en';
 const TO_LANG = process.env.TRANSLATE_TO || 'zh-CN';
 
 /**
- * Translate using MyMemory API (free, no key required)
- * Source: https://mymemory.translated.net/doc/spec.php
+ * Translate using MyMemory API (free)
  */
-async function translateWithMyMemory(text, from = 'en', to = 'zh-CN') {
+async function translateWithMyMemory(text, to = 'zh-CN') {
   if (!text || text.trim() === '') return '';
 
   try {
     // MyMemory has limits: 5000 chars per request
     const truncated = text.substring(0, 4000);
-    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(truncated)}&langpair=${from}|${to}`;
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(truncated)}&langpair=en|${to}`;
 
     const response = await axios.get(url, { timeout: 10000 });
     const data = response.data;
@@ -27,45 +25,31 @@ async function translateWithMyMemory(text, from = 'en', to = 'zh-CN') {
     if (data.responseStatus === 200 && data.responseData) {
       return data.responseData.translatedText;
     }
-    return `[翻译失败: ${data.responseDetails || 'unknown'}]`;
+    return `[翻译失败]`;
   } catch (error) {
     return `[翻译失败: ${error.message}]`;
   }
 }
 
 /**
- * Translate text
- */
-async function translateText(text, from = FROM_LANG, to = TO_LANG) {
-  if (!text || text.trim() === '') return '';
-
-  // MyMemory works best with English source
-  const sourceLang = from === 'auto' ? 'en' : from;
-
-  return await translateWithMyMemory(text, sourceLang, to);
-}
-
-/**
- * Translate a single item
+ * Translate a single item's summary
  */
 async function translateItem(item) {
-  const originalContent = item.content || item.title || '';
+  // Translate the summary (already extracted by fetcher)
+  const summaryToTranslate = item.summary || '';
 
-  if (!originalContent) {
+  if (!summaryToTranslate) {
     return {
       ...item,
-      originalContent: '',
-      translatedContent: ''
+      translatedSummary: ''
     };
   }
 
-  // Translate the content
-  const translatedContent = await translateText(originalContent);
+  const translatedSummary = await translateWithMyMemory(summaryToTranslate, TO_LANG);
 
   return {
     ...item,
-    originalContent,
-    translatedContent
+    translatedSummary
   };
 }
 
@@ -73,7 +57,7 @@ async function translateItem(item) {
  * Translate multiple items
  */
 async function translateTweets(items) {
-  console.log(`Translating ${items.length} items to Chinese...`);
+  console.log(`Translating ${items.length} summaries to Chinese...`);
 
   const translatedItems = [];
 
@@ -81,7 +65,7 @@ async function translateTweets(items) {
     const translated = await translateItem(items[i]);
     translatedItems.push(translated);
 
-    // Progress log and delay to avoid rate limiting
+    // Progress log
     if ((i + 1) % 5 === 0) {
       console.log(`Progress: ${i + 1}/${items.length}`);
     }
@@ -97,6 +81,5 @@ async function translateTweets(items) {
 }
 
 module.exports = {
-  translateText,
   translateTweets
 };

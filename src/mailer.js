@@ -1,6 +1,6 @@
 /**
  * Email Sender Module
- * Sends AI news via QQ邮箱 SMTP
+ * Sends AI news summary via QQ邮箱 SMTP
  */
 
 const nodemailer = require('nodemailer');
@@ -30,41 +30,40 @@ function createTransporter() {
 }
 
 /**
- * Generate HTML content for the email
+ * Generate HTML content for the email - summary only format
  */
-function generateEmailHtml(tweets) {
+function generateEmailHtml(items) {
   const today = format(new Date(), 'yyyy年MM月dd日', { locale: zhCN });
 
-  let tweetsHtml = '';
+  let itemsHtml = '';
 
-  tweets.forEach((tweet, index) => {
-    const dateStr = tweet.pubDate
-      ? format(new Date(tweet.pubDate), 'yyyy-MM-dd HH:mm', { locale: zhCN })
+  items.forEach((item, index) => {
+    const dateStr = item.pubDate
+      ? format(new Date(item.pubDate), 'MM-dd', { locale: zhCN })
       : '';
 
-    tweetsHtml += `
-      <div class="tweet-item" style="margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid #e5e7eb;">
-        <div class="tweet-header" style="margin-bottom: 8px;">
-          <span class="author" style="font-weight: 600; color: #1f2937;">
-            ${tweet.author || 'Unknown'}
+    // Use translated summary if available, otherwise show original summary
+    const contentDisplay = item.translatedSummary || item.summary || '';
+
+    itemsHtml += `
+      <div class="item" style="margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #e5e7eb;">
+        <div class="header" style="margin-bottom: 8px;">
+          <span class="index" style="background: #3b82f6; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-right: 8px;">
+            ${index + 1}
           </span>
-          <span class="handle" style="color: #6b7280; margin-left: 8px;">
-            @${tweet.authorHandle || ''}
+          <span class="title" style="font-weight: 600; color: #1f2937; font-size: 16px;">
+            ${item.title || '无标题'}
           </span>
-          <span class="date" style="color: #9ca3af; font-size: 12px; margin-left: 12px;">
-            ${dateStr}
+          <span class="source" style="color: #6b7280; font-size: 12px; margin-left: 8px;">
+            ${item.author} | ${dateStr}
           </span>
         </div>
-        <div class="original" style="color: #374151; line-height: 1.6; margin-bottom: 12px; padding: 12px; background: #f9fafb; border-radius: 8px;">
-          ${tweet.originalContent || tweet.content}
+        <div class="content" style="color: #4b5563; line-height: 1.8; font-size: 14px; padding-left: 32px;">
+          ${contentDisplay}
         </div>
-        <div class="translation" style="color: #4b5563; line-height: 1.6; padding: 12px; background: #eff6ff; border-radius: 8px; border-left: 3px solid #3b82f6;">
-          <strong style="color: #3b82f6;">中文翻译：</strong>
-          ${tweet.translatedContent || '翻译失败'}
-        </div>
-        ${tweet.link ? `
-          <div class="link" style="margin-top: 8px;">
-            <a href="${tweet.link}" target="_blank" style="color: #3b82f6; font-size: 12px;">查看原文 →</a>
+        ${item.link ? `
+          <div class="link" style="margin-top: 8px; padding-left: 32px;">
+            <a href="${item.link}" target="_blank" style="color: #3b82f6; font-size: 12px;">🔗 原文链接</a>
           </div>
         ` : ''}
       </div>
@@ -76,32 +75,32 @@ function generateEmailHtml(tweets) {
     <html>
     <head>
       <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: #f3f4f6; }
-        .container { background: white; border-radius: 12px; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        h1 { color: #1f2937; font-size: 24px; margin-bottom: 8px; }
-        .subtitle { color: #6b7280; font-size: 14px; margin-bottom: 32px; }
-        .tweet-item { margin-bottom: 24px; }
-        .tweet-header { margin-bottom: 8px; }
-        .author { font-weight: 600; color: #1f2937; }
-        .handle { color: #6b7280; margin-left: 8px; }
-        .date { color: #9ca3af; font-size: 12px; margin-left: 12px; }
-        .original { color: #374151; line-height: 1.6; margin-bottom: 12px; padding: 12px; background: #f9fafb; border-radius: 8px; }
-        .translation { color: #4b5563; line-height: 1.6; padding: 12px; background: #eff6ff; border-radius: 8px; border-left: 3px solid #3b82f6; }
-        .link { margin-top: 8px; }
-        .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb; color: #9ca3af; font-size: 12px; text-align: center; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; max-width: 700px; margin: 0 auto; padding: 20px; background: #f3f4f6; }
+        .container { background: white; border-radius: 12px; padding: 28px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        h1 { color: #1f2937; font-size: 22px; margin-bottom: 4px; }
+        .subtitle { color: #6b7280; font-size: 13px; margin-bottom: 24px; }
+        .item { margin-bottom: 20px; }
+        .header { margin-bottom: 8px; }
+        .index { background: #3b82f6; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-right: 8px; }
+        .title { font-weight: 600; color: #1f2937; font-size: 16px; }
+        .source { color: #6b7280; font-size: 12px; margin-left: 8px; }
+        .content { color: #4b5563; line-height: 1.8; font-size: 14px; padding-left: 32px; }
+        .link { margin-top: 8px; padding-left: 32px; }
+        .footer { margin-top: 24px; padding-top: 16px; border-top: 1px solid #e5e7eb; color: #9ca3af; font-size: 11px; text-align: center; }
       </style>
     </head>
     <body>
       <div class="container">
-        <h1>🤖 AI资讯订阅</h1>
-        <p class="subtitle">每3天自动推送 | ${today} | 共${tweets.length}条资讯</p>
+        <h1>🤖 AI资讯摘要</h1>
+        <p class="subtitle">每3天自动推送 | ${today} | 共${items.length}条</p>
 
-        ${tweetsHtml}
+        ${itemsHtml}
 
         <div class="footer">
-          <p>本邮件由AI资讯订阅机器人自动发送</p>
-          <p>数据来源：Twitter RSS | 翻译：Google Translate</p>
+          <p>数据来源：Hacker News + AI公司官方博客</p>
+          <p>翻译：MyMemory | 由AI资讯订阅机器人自动发送</p>
         </div>
       </div>
     </body>
@@ -112,9 +111,9 @@ function generateEmailHtml(tweets) {
 }
 
 /**
- * Send email with AI news
+ * Send email with AI news summary
  */
-async function sendNewsEmail(tweets) {
+async function sendNewsEmail(items) {
   const transporter = createTransporter();
   const recipient = process.env.RECIPIENT_EMAIL;
   const sender = process.env.QQ_EMAIL;
@@ -125,12 +124,12 @@ async function sendNewsEmail(tweets) {
 
   const today = format(new Date(), 'yyyy年MM月dd日', { locale: zhCN });
 
-  const htmlContent = generateEmailHtml(tweets);
+  const htmlContent = generateEmailHtml(items);
 
   const mailOptions = {
-    from: `"AI资讯订阅" <${sender}>`,
+    from: `"AI资讯" <${sender}>`,
     to: recipient,
-    subject: `🤖 AI资讯订阅 - ${today} (${tweets.length}条)`,
+    subject: `🤖 AI资讯 - ${today} (${items.length}条摘要)`,
     html: htmlContent
   };
 
