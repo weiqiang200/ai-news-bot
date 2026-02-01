@@ -1,0 +1,50 @@
+name: AI News Subscription Bot
+
+on:
+  # Schedule: Run every 3 days at 00:00 UTC
+  schedule:
+    - cron: '0 0 */3 * *'
+
+  # Manual trigger
+  workflow_dispatch:
+
+  # Test on push to main branch
+  push:
+    branches: [main]
+
+jobs:
+  fetch-and-send:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run AI News Bot
+        env:
+          QQ_EMAIL: ${{ secrets.QQ_EMAIL }}
+          QQ_AUTH_CODE: ${{ secrets.QQ_AUTH_CODE }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          RSSHUB_URL: ${{ secrets.RSSHUB_URL || 'https://rsshub.app' }}
+          TRANSLATE_FROM: ${{ secrets.TRANSLATE_FROM || 'auto' }}
+          TRANSLATE_TO: ${{ secrets.TRANSLATE_TO || 'zh-CN' }}
+        run: npm start
+
+      - name: Send success notification
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ AI News Bot completed successfully!"
+          else
+            echo "❌ AI News Bot failed: ${{ job.status }}"
+            exit 1
+          fi
