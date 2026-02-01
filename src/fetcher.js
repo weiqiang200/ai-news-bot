@@ -37,25 +37,31 @@ function getRssUrl(handle) {
 async function fetchAccountTweets(account) {
   try {
     const url = getRssUrl(account.handle);
+    console.log(`  Fetching @${account.handle}...`);
     const response = await axios.get(url, {
-      timeout: 10000,
+      timeout: 15000,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
       }
     });
 
     const feed = await parser.parseString(response.data);
+    console.log(`    Got ${feed.items?.length || 0} items from @${account.handle}`);
+
+    if (!feed.items || feed.items.length === 0) {
+      return [];
+    }
 
     return feed.items.map(item => ({
       title: item.title || '',
-      content: item.contentSnippet || item.content || '',
+      content: item.contentSnippet || item.content || item.description || '',
       link: item.link,
-      pubDate: item.pubDate,
+      pubDate: item.pubDate || item.isoDate,
       author: account.name,
       authorHandle: account.handle
     }));
   } catch (error) {
-    console.error(`Failed to fetch tweets from @${account.handle}:`, error.message);
+    console.error(`  Failed to fetch @${account.handle}:`, error.message.substring(0, 100));
     return [];
   }
 }
@@ -109,11 +115,16 @@ async function fetchAINews() {
   results.forEach((result, index) => {
     if (result.status === 'fulfilled') {
       allTweets.push(...result.value);
+    } else if (result.status === 'rejected') {
+      console.log(`  Failed: ${TWITTER_ACCOUNTS[index].handle}`);
     }
   });
 
+  console.log(`Total raw tweets: ${allTweets.length}`);
+
   // Filter to recent tweets (last 3 days)
   const recentTweets = filterRecentTweets(allTweets, 3);
+  console.log(`Recent tweets (last 3 days): ${recentTweets.length}`);
 
   // Clean each tweet
   const cleanedTweets = recentTweets.map(tweet => ({
