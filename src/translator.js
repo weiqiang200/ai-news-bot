@@ -1,63 +1,59 @@
 /**
  * Translation Module
- * Uses Google Translate API to translate tweet content
+ * Uses free translation APIs with fallback
  */
 
-const { translate } = require('google-translate-api');
 const axios = require('axios');
 
 // Configuration
-const FROM_LANG = process.env.TRANSLATE_FROM || 'auto';
+const FROM_LANG = process.env.TRANSLATE_FROM || 'en';
 const TO_LANG = process.env.TRANSLATE_TO || 'zh-CN';
 
 /**
- * Translate text using Google Translate
+ * Translate using MyMemory API (free, no key required)
+ * Source: https://mymemory.translated.net/doc/spec.php
  */
-async function translateText(text, from = FROM_LANG, to = TO_LANG) {
-  if (!text || text.trim() === '') {
-    return '';
-  }
+async function translateWithMyMemory(text, from = 'en', to = 'zh-CN') {
+  if (!text || text.trim() === '') return '';
 
   try {
-    const result = await translate(text, { from, to });
-    return result.text;
-  } catch (error) {
-    console.error('Translation error:', error.message);
-    return '[翻译失败]';
-  }
-}
+    // MyMemory has limits: 5000 chars per request
+    const truncated = text.substring(0, 4000);
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(truncated)}&langpair=${from}|${to}`;
 
-/**
- * Translate multiple texts in batch
- * Note: Google Translate API has rate limits, so we add delays
- */
-async function translateBatch(texts, from = FROM_LANG, to = TO_LANG) {
-  const results = [];
+    const response = await axios.get(url, { timeout: 10000 });
+    const data = response.data;
 
-  for (let i = 0; i < texts.length; i++) {
-    const text = texts[i];
-
-    // Add delay to avoid rate limiting
-    if (i > 0 && i % 5 === 0) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+    if (data.responseStatus === 200 && data.responseData) {
+      return data.responseData.translatedText;
     }
-
-    const translated = await translateText(text, from, to);
-    results.push(translated);
+    return `[翻译失败: ${data.responseDetails || 'unknown'}]`;
+  } catch (error) {
+    return `[翻译失败: ${error.message}]`;
   }
-
-  return results;
 }
 
 /**
- * Translate a tweet object (original + translation)
+ * Translate text
  */
-async function translateTweet(tweet) {
-  const originalContent = tweet.content;
+async function translateText(text, from = FROM_LANG, to = TO_LANG) {
+  if (!text || text.trim() === '') return '';
+
+  // MyMemory works best with English source
+  const sourceLang = from === 'auto' ? 'en' : from;
+
+  return await translateWithMyMemory(text, sourceLang, to);
+}
+
+/**
+ * Translate a single item
+ */
+async function translateItem(item) {
+  const originalContent = item.content || item.title || '';
 
   if (!originalContent) {
     return {
-      ...tweet,
+      ...item,
       originalContent: '',
       translatedContent: ''
     };
@@ -67,37 +63,40 @@ async function translateTweet(tweet) {
   const translatedContent = await translateText(originalContent);
 
   return {
-    ...tweet,
+    ...item,
     originalContent,
     translatedContent
   };
 }
 
 /**
- * Translate multiple tweets
+ * Translate multiple items
  */
-async function translateTweets(tweets) {
-  console.log(`Transracting ${tweets.length} tweets to Chinese...`);
+async function translateTweets(items) {
+  console.log(`Translating ${items.length} items to Chinese...`);
 
-  const translatedTweets = [];
+  const translatedItems = [];
 
-  for (let i = 0; i < tweets.length; i++) {
-    const translated = await translateTweet(tweets[i]);
-    translatedTweets.push(translated);
+  for (let i = 0; i < items.length; i++) {
+    const translated = await translateItem(items[i]);
+    translatedItems.push(translated);
 
-    // Progress log
+    // Progress log and delay to avoid rate limiting
     if ((i + 1) % 5 === 0) {
-      console.log(`Progress: ${i + 1}/${tweets.length}`);
+      console.log(`Progress: ${i + 1}/${items.length}`);
+    }
+
+    // Add delay between requests (500ms)
+    if (i < items.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
   }
 
   console.log('Translation completed!');
-  return translatedTweets;
+  return translatedItems;
 }
 
 module.exports = {
   translateText,
-  translateBatch,
-  translateTweet,
   translateTweets
 };
