@@ -23,47 +23,58 @@ const TWITTER_ACCOUNTS = [
 ];
 
 const RSSHUB_BASE = process.env.RSSHUB_URL || 'https://rsshub.app';
+const NITTER_BASE = 'https://nitter.net';
 
 /**
- * Get RSS URL for a Twitter user
+ * Get RSS URL for a Twitter user - try multiple sources
  */
-function getRssUrl(handle) {
-  return `${RSSHUB_BASE}/twitter/user/${handle}`;
+function getRssUrls(handle) {
+  return [
+    `${RSSHUB_BASE}/twitter/user/${handle}`,
+    `${NITTER_BASE}/${handle}/rss`
+  ];
 }
 
 /**
  * Fetch tweets from a single account
  */
 async function fetchAccountTweets(account) {
-  try {
-    const url = getRssUrl(account.handle);
-    console.log(`  Fetching @${account.handle}...`);
-    const response = await axios.get(url, {
-      timeout: 15000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+  const urls = getRssUrls(account.handle);
+
+  for (const url of urls) {
+    try {
+      console.log(`  Trying @${account.handle} via ${url.split('/')[2]}...`);
+      const response = await axios.get(url, {
+        timeout: 15000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+        }
+      });
+
+      const feed = await parser.parseString(response.data);
+
+      if (!feed.items || feed.items.length === 0) {
+        continue;
       }
-    });
 
-    const feed = await parser.parseString(response.data);
-    console.log(`    Got ${feed.items?.length || 0} items from @${account.handle}`);
+      console.log(`    Success! Got ${feed.items.length} items from @${account.handle}`);
 
-    if (!feed.items || feed.items.length === 0) {
-      return [];
+      return feed.items.map(item => ({
+        title: item.title || '',
+        content: item.contentSnippet || item.content || item.description || '',
+        link: item.link || item.id,
+        pubDate: item.pubDate || item.isoDate,
+        author: account.name,
+        authorHandle: account.handle
+      }));
+    } catch (error) {
+      console.log(`    Failed: ${error.message.substring(0, 60)}`);
+      continue;
     }
-
-    return feed.items.map(item => ({
-      title: item.title || '',
-      content: item.contentSnippet || item.content || item.description || '',
-      link: item.link,
-      pubDate: item.pubDate || item.isoDate,
-      author: account.name,
-      authorHandle: account.handle
-    }));
-  } catch (error) {
-    console.error(`  Failed to fetch @${account.handle}:`, error.message.substring(0, 100));
-    return [];
   }
+
+  console.log(`  No data from @${account.handle}`);
+  return [];
 }
 
 /**
