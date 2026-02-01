@@ -2,18 +2,18 @@
  * AI News Subscription Bot
  * Main entry point
  *
- * Fetches AI news from Twitter accounts via RSSHub,
+ * Fetches AI news from Hacker News and AI company blogs,
  * translates to Chinese, and sends via email.
  */
 
 require('dotenv').config();
 
-const { fetchAINews, selectTopTweets } = require('./fetcher');
+const { fetchAINews, selectTopItems } = require('./fetcher');
 const { translateTweets } = require('./translator');
 const { sendNewsEmail, verifyConnection } = require('./mailer');
 
 // Configuration
-const MAX_TWEETS = 15;
+const MAX_ITEMS = 15;
 
 async function main() {
   console.log('='.repeat(50));
@@ -28,29 +28,29 @@ async function main() {
       throw new Error('邮件配置验证失败');
     }
 
-    // Step 2: Fetch AI news from Twitter
+    // Step 2: Fetch AI news
     console.log('\n📰 获取AI资讯...');
-    const allTweets = await fetchAINews();
-    console.log(`获取到 ${allTweets.length} 条推文`);
+    const allItems = await fetchAINews();
+    console.log(`获取到 ${allItems.length} 条资讯`);
 
-    if (allTweets.length === 0) {
+    if (allItems.length === 0) {
       console.log('没有找到新的AI资讯，发送空报告邮件');
       await sendNewsEmail([]);
       return;
     }
 
-    // Step 3: Select top tweets
+    // Step 3: Select top items
     console.log('\n🔍 筛选最佳资讯...');
-    const selectedTweets = selectTopTweets(allTweets, MAX_TWEETS);
-    console.log(`选择 ${selectedTweets.length} 条资讯进行翻译`);
+    const selectedItems = selectTopItems(allItems, MAX_ITEMS);
+    console.log(`选择 ${selectedItems.length} 条资讯进行翻译`);
 
     // Step 4: Translate to Chinese
     console.log('\n🌐 翻译为中文...');
-    const translatedTweets = await translateTweets(selectedTweets);
+    const translatedItems = await translateTweets(selectedItems);
 
     // Step 5: Send email
     console.log('\n📧 发送邮件...');
-    await sendNewsEmail(translatedTweets);
+    await sendNewsEmail(translatedItems);
 
     console.log('\n✅ 完成！所有资讯已发送');
     console.log('='.repeat(50));

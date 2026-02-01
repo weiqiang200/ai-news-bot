@@ -1,6 +1,6 @@
 /**
- * RSS Fetcher Module
- * Fetches AI news from Twitter accounts via RSSHub
+ * AI News Fetcher Module
+ * Fetches AI news from Hacker News and AI company blogs
  */
 
 const Parser = require('rss-parser');
@@ -8,105 +8,116 @@ const axios = require('axios');
 
 const parser = new Parser();
 
-// AI Twitter accounts to follow
-const TWITTER_ACCOUNTS = [
-  { name: 'AnthropicAI', handle: 'AnthropicAI' },
-  { name: 'OpenAI', handle: 'OpenAI' },
-  { name: 'DeepMind', handle: 'DeepMind' },
-  { name: 'Yann LeCun', handle: 'ylecun' },
-  { name: 'Andrew Ng', handle: 'AndrewYNg' },
-  { name: 'Ian Goodfellow', handle: 'goodfellow_ian' },
-  { name: 'Demis Hassabis', handle: 'demishassabis' },
-  { name: 'Jeff Dean', handle: 'JeffDean' },
-  { name: 'Fei-Fei Li', handle: 'drfeifei' },
-  { name: 'Sam Altman', handle: 'sama' }
+// Stable RSS sources
+const RSS_SOURCES = [
+  // AI Company Blogs
+  { name: 'OpenAI Blog', url: 'https://openai.com/blog/rss.xml', type: 'blog' },
+  { name: 'Anthropic Blog', url: 'https://www.anthropic.com/rss.xml', type: 'blog' },
+  { name: 'DeepMind Blog', url: 'https://deepmind.google/blog/rss/', type: 'blog' },
+  { name: 'Google AI Blog', url: 'http://googleaiblog.blogspot.com/atom.xml', type: 'blog' },
+  { name: 'Meta AI Blog', url: 'https://ai.meta.com/blog/rss/', type: 'blog' },
+  { name: 'MIT News - AI', url: 'https://news.mit.edu/rss/topic/artificial-intelligence2', type: 'news' },
+  { name: 'Wired AI', url: 'https://www.wired.com/feed/category/ai/latest/rss', type: 'news' },
+  { name: 'The Verge AI', url: 'https://www.theverge.com/rss/ai/index.xml', type: 'news' },
+  { name: 'TechCrunch AI', url: 'https://techcrunch.com/category/artificial-intelligence/feed/', type: 'news' },
 ];
 
-const RSSHUB_BASE = process.env.RSSHUB_URL || 'https://rsshub.app';
-const NITTER_BASE = 'https://nitter.net';
-
 /**
- * Get RSS URL for a Twitter user - try multiple sources
+ * Fetch AI stories from Hacker News
  */
-function getRssUrls(handle) {
-  return [
-    `${RSSHUB_BASE}/twitter/user/${handle}`,
-    `${NITTER_BASE}/${handle}/rss`
-  ];
-}
+async function fetchHackerNewsAI() {
+  try {
+    console.log('  Fetching from Hacker News...');
+    const response = await axios.get(
+      'https://hn.algolia.com/api/v1/search_by_date?query=AI&tags=story&hitsPerPage=30',
+      { timeout: 15000 }
+    );
 
-/**
- * Fetch tweets from a single account
- */
-async function fetchAccountTweets(account) {
-  const urls = getRssUrls(account.handle);
+    const stories = response.data.hits.map(story => ({
+      title: story.title || '',
+      content: `${story.title}\n${story.url || 'https://news.ycombinator.com/item?id=' + story.objectID}`,
+      link: story.url || `https://news.ycombinator.com/item?id=${story.objectID}`,
+      pubDate: new Date(story.created_at).toISOString(),
+      author: story.author || 'Anonymous',
+      authorHandle: 'HackerNews',
+      points: story.points || 0
+    }));
 
-  for (const url of urls) {
-    try {
-      console.log(`  Trying @${account.handle} via ${url.split('/')[2]}...`);
-      const response = await axios.get(url, {
-        timeout: 15000,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-        }
-      });
-
-      const feed = await parser.parseString(response.data);
-
-      if (!feed.items || feed.items.length === 0) {
-        continue;
-      }
-
-      console.log(`    Success! Got ${feed.items.length} items from @${account.handle}`);
-
-      return feed.items.map(item => ({
-        title: item.title || '',
-        content: item.contentSnippet || item.content || item.description || '',
-        link: item.link || item.id,
-        pubDate: item.pubDate || item.isoDate,
-        author: account.name,
-        authorHandle: account.handle
-      }));
-    } catch (error) {
-      console.log(`    Failed: ${error.message.substring(0, 60)}`);
-      continue;
-    }
+    console.log(`    Got ${stories.length} AI stories from Hacker News`);
+    return stories;
+  } catch (error) {
+    console.log(`    Failed: ${error.message.substring(0, 60)}`);
+    return [];
   }
-
-  console.log(`  No data from @${account.handle}`);
-  return [];
 }
 
 /**
- * Filter tweets from the last N days
+ * Fetch from a single RSS source
  */
-function filterRecentTweets(tweets, days = 3) {
+async function fetchRssSource(source) {
+  try {
+    console.log(`  Fetching ${source.name}...`);
+    const response = await axios.get(source.url, {
+      timeout: 15000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+      }
+    });
+
+    const feed = await parser.parseString(response.data);
+
+    if (!feed.items || feed.items.length === 0) {
+      console.log(`    No items from ${source.name}`);
+      return [];
+    }
+
+    const items = feed.items.slice(0, 10).map(item => ({
+      title: item.title || '',
+      content: item.contentSnippet || item.content || item.description || '',
+      link: item.link || item.id,
+      pubDate: item.pubDate || item.isoDate,
+      author: source.name,
+      authorHandle: source.name.replace(/\s+/g, '')
+    }));
+
+    console.log(`    Got ${items.length} items from ${source.name}`);
+    return items;
+  } catch (error) {
+    console.log(`    Failed: ${error.message.substring(0, 60)}`);
+    return [];
+  }
+}
+
+/**
+ * Filter items from the last N days
+ */
+function filterRecentItems(items, days = 3) {
   const now = new Date();
   const cutoffDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
-  return tweets.filter(tweet => {
-    const pubDate = new Date(tweet.pubDate);
-    return pubDate >= cutoffDate;
+  return items.filter(item => {
+    try {
+      const pubDate = new Date(item.pubDate);
+      return pubDate >= cutoffDate;
+    } catch {
+      return false;
+    }
   });
 }
 
 /**
- * Clean tweet content - remove extra whitespace and truncate
+ * Clean content
  */
-function cleanTweetContent(content) {
+function cleanContent(content) {
   if (!content) return '';
-
+  // Remove HTML tags
+  let cleaned = content.replace(/<[^>]*>/g, ' ');
   // Remove extra whitespace
-  let cleaned = content.replace(/\s+/g, ' ').trim();
-
-  // Remove tweet-specific patterns like "pic.twitter.com/xxx"
-  cleaned = cleaned.replace(/pic\.twitter\.com\/\w+/gi, '');
-
-  // Truncate if too long (for readability)
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  // Truncate if too long
   if (cleaned.length > 500) {
     cleaned = cleaned.substring(0, 500) + '...';
   }
-
   return cleaned.trim();
 }
 
@@ -114,64 +125,69 @@ function cleanTweetContent(content) {
  * Main function to fetch all AI news
  */
 async function fetchAINews() {
-  console.log('Fetching AI news from Twitter...');
+  console.log('Fetching AI news...');
 
-  const allTweets = [];
+  const allItems = [];
 
-  // Fetch from all accounts concurrently
-  const results = await Promise.allSettled(
-    TWITTER_ACCOUNTS.map(account => fetchAccountTweets(account))
+  // Fetch Hacker News AI stories
+  const hnStories = await fetchHackerNewsAI();
+  allItems.push(...hnStories);
+
+  // Fetch from all RSS sources concurrently
+  const rssResults = await Promise.allSettled(
+    RSS_SOURCES.map(source => fetchRssSource(source))
   );
 
-  results.forEach((result, index) => {
+  rssResults.forEach((result) => {
     if (result.status === 'fulfilled') {
-      allTweets.push(...result.value);
-    } else if (result.status === 'rejected') {
-      console.log(`  Failed: ${TWITTER_ACCOUNTS[index].handle}`);
+      allItems.push(...result.value);
     }
   });
 
-  console.log(`Total raw tweets: ${allTweets.length}`);
+  console.log(`Total raw items: ${allItems.length}`);
 
-  // Filter to recent tweets (last 3 days)
-  const recentTweets = filterRecentTweets(allTweets, 3);
-  console.log(`Recent tweets (last 3 days): ${recentTweets.length}`);
+  // Filter to recent items (last 3 days)
+  const recentItems = filterRecentItems(allItems, 3);
+  console.log(`Recent items (last 3 days): ${recentItems.length}`);
 
-  // Clean each tweet
-  const cleanedTweets = recentTweets.map(tweet => ({
-    ...tweet,
-    content: cleanTweetContent(tweet.content)
+  // Clean each item
+  const cleanedItems = recentItems.map(item => ({
+    ...item,
+    content: cleanContent(item.content)
   }));
 
   // Sort by date (newest first)
-  cleanedTweets.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
+  cleanedItems.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
 
-  console.log(`Found ${cleanedTweets.length} recent AI-related tweets`);
+  console.log(`Found ${cleanedItems.length} recent AI news items`);
 
-  return cleanedTweets;
+  return cleanedItems;
 }
 
 /**
- * Select top N tweets to include in the email
+ * Select top N items to include in the email
  */
-function selectTopTweets(tweets, count = 15) {
-  // Remove duplicates based on content
-  const uniqueTweets = [];
-  const seenContent = new Set();
+function selectTopItems(items, count = 15) {
+  // Sort by points (for HN) or just take unique
+  const sorted = [...items].sort((a, b) => (b.points || 0) - (a.points || 0));
 
-  for (const tweet of tweets) {
-    const contentKey = tweet.content.toLowerCase().substring(0, 100);
-    if (!seenContent.has(contentKey)) {
-      seenContent.add(contentKey);
-      uniqueTweets.push(tweet);
+  // Remove duplicates based on title
+  const uniqueItems = [];
+  const seenTitles = new Set();
+
+  for (const item of sorted) {
+    const titleKey = item.title.toLowerCase().substring(0, 50);
+    if (!seenTitles.has(titleKey)) {
+      seenTitles.add(titleKey);
+      uniqueItems.push(item);
     }
   }
 
-  return uniqueTweets.slice(0, count);
+  return uniqueItems.slice(0, count);
 }
 
 module.exports = {
   fetchAINews,
-  selectTopTweets,
-  TWITTER_ACCOUNTS
+  selectTopItems,
+  RSS_SOURCES
 };
